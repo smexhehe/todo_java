@@ -33,7 +33,7 @@ jobs:
           docker compose logs todo
           exit 1
       - name: Run k6 smoke test
-        run: docker compose --profile load run --rm -e SMOKE=1 loadtest
+        run: docker compose --profile load run --rm --no-deps -e SMOKE=1 loadtest
       - name: Collect service logs after failure
         if: failure()
         run: |
