@@ -214,3 +214,6 @@ git push
 ```
 
 Git хранит историю исходного кода и конфигурации. В Git не должны попадать `target/`, `diagnostics/`, Docker volumes и локальная папка Eclipse `workspace/`.
+## CI gate
+
+Изменения в `main` объединяются через Pull Request только после успешных `test` и `load-smoke`.
