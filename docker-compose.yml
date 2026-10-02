@@ -1,0 +1,94 @@
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    command: ["postgres", "-c", "shared_preload_libraries=pg_stat_statements"]
+    environment:
+      POSTGRES_DB: todo
+      POSTGRES_USER: todo
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-todo}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U todo -d todo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  todo:
+    build: .
+    ports:
+      - "127.0.0.1:9011:9011"
+      - "127.0.0.1:${TODO_HOST_PORT:-7540}:7540"
+    environment:
+      TODO_PORT: "7540"
+      TODO_PASSWORD: ${TODO_PASSWORD:-}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/todo
+      SPRING_DATASOURCE_USERNAME: todo
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD:-todo}
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/diagnostics
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9011
+        -Dcom.sun.management.jmxremote.rmi.port=9011
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=127.0.0.1
+    volumes:
+      - diagnostics_data:/diagnostics
+    depends_on:
+      postgres:
+        condition: service_healthy
+    mem_limit: 512m
+    cpus: "1.0"
+    restart: unless-stopped
+
+  prometheus:
+    image: prom/prometheus:v3.13.3
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+    ports:
+      - "127.0.0.1:${PROMETHEUS_HOST_PORT:-9090}:9090"
+    volumes:
+      - ./monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    depends_on:
+      - todo
+    restart: unless-stopped
+
+  grafana:
+    image: grafana/grafana:13.1.6
+    ports:
+      - "127.0.0.1:${GRAFANA_HOST_PORT:-3000}:3000"
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+      - ./monitoring/grafana/providers:/etc/grafana/provisioning/dashboards:ro
+      - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    restart: unless-stopped
+
+  loadtest:
+    image: grafana/k6:2.2.0
+    profiles: ["load"]
+    command: ["run", "/scripts/read-only.js"]
+    environment:
+      BASE_URL: http://todo:7540
+      TODO_PASSWORD: ${TODO_PASSWORD:-}
+    volumes:
+      - ./loadtest:/scripts:ro
+    depends_on:
+      - todo
+
+volumes:
+  postgres_data:
+  prometheus_data:
+  grafana_data:
+  diagnostics_data:

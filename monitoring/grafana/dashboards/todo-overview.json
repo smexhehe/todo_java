@@ -1,0 +1,168 @@
+{
+  "uid": "todo-overview",
+  "title": "Todo Scheduler: JVM and HTTP",
+  "tags": ["todo", "jvm", "load-test"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "5s",
+  "time": { "from": "now-30m", "to": "now" },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Application scrape",
+      "type": "stat",
+      "gridPos": { "h": 5, "w": 6, "x": 0, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "up{job=\"todo\"}" }],
+      "fieldConfig": { "defaults": { "mappings": [{ "type": "value", "options": { "0": { "text": "DOWN", "color": "red" }, "1": { "text": "UP", "color": "green" } } }] }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 2,
+      "title": "API requests / second",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 0 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(http_server_requests_seconds_count{job=\"todo\",uri=~\"/api/.*\"}[1m]))", "legendFormat": "requests/s" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 3,
+      "title": "API latency p95 / p99",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"todo\",uri=~\"/api/.*\"}[5m])))", "legendFormat": "p95" },
+        { "refId": "B", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_server_requests_seconds_bucket{job=\"todo\",uri=~\"/api/.*\"}[5m])))", "legendFormat": "p99" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 4,
+      "title": "API 5xx errors / second",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(http_server_requests_seconds_count{job=\"todo\",uri=~\"/api/.*\",status=~\"5..\"}[1m])) or vector(0)", "legendFormat": "5xx/s" }],
+      "fieldConfig": { "defaults": { "unit": "reqps", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 5,
+      "title": "Heap used / max",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "sum(jvm_memory_used_bytes{job=\"todo\",area=\"heap\"})", "legendFormat": "used" },
+        { "refId": "B", "expr": "sum(jvm_memory_max_bytes{job=\"todo\",area=\"heap\"})", "legendFormat": "max" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 6,
+      "title": "GC pause time / second",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(rate(jvm_gc_pause_seconds_sum{job=\"todo\"}[1m])) * 1000", "legendFormat": "GC ms/s" }],
+      "fieldConfig": { "defaults": { "unit": "ms", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 7,
+      "title": "Process CPU usage",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "process_cpu_usage{job=\"todo\"} * 100", "legendFormat": "CPU %" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 8,
+      "title": "Hikari connections",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [
+        { "refId": "A", "expr": "hikaricp_connections_active{job=\"todo\"}", "legendFormat": "active" },
+        { "refId": "B", "expr": "hikaricp_connections_idle{job=\"todo\"}", "legendFormat": "idle" },
+        { "refId": "C", "expr": "hikaricp_connections_pending{job=\"todo\"}", "legendFormat": "pending" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 9,
+      "title": "Java process RAM (RSS)",
+      "description": "Resident memory of the Java process, including heap and native memory. This is not total container memory.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 24, "x": 0, "y": 32 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "todo_process_rss_bytes{job=\"todo\"}", "legendFormat": "process RSS" }],
+      "fieldConfig": { "defaults": { "unit": "bytes", "min": 0 }, "overrides": [] }
+    },
+    {
+      "id": 10,
+      "title": "GC collections since JVM start",
+      "description": "Completed GC collections since the Java process started. Resets when the process restarts.",
+      "type": "stat",
+      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum(jvm_gc_pause_seconds_count{job=\"todo\"})", "legendFormat": "collections" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0, "decimals": 0 }, "overrides": [] },
+      "options": { "reduceOptions": { "calcs": ["lastNotNull"], "fields": "", "values": false }, "orientation": "auto", "textMode": "auto", "colorMode": "value", "graphMode": "none" }
+    },
+    {
+      "id": 11,
+      "title": "GC collections / minute",
+      "description": "One-minute GC rate by type, expressed as collections per minute.",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 18, "x": 6, "y": 40 },
+      "datasource": { "type": "prometheus", "uid": "prometheus" },
+      "targets": [{ "refId": "A", "expr": "sum by (action) (rate(jvm_gc_pause_seconds_count{job=\"todo\"}[1m])) * 60", "legendFormat": "{{action}}" }],
+      "fieldConfig": { "defaults": { "unit": "short", "min": 0 }, "overrides": [] }
+    },
+    {
+    "id": 12,
+    "title": "Task lock conflicts",
+    "description": "New lock timeout or deadlock responses during the selected period.",
+    "type": "stat",
+    "gridPos": { "h": 8, "w": 24, "x": 0, "y": 48 },
+    "datasource": { "type": "prometheus", "uid": "prometheus" },
+    "targets": [
+      {
+        "refId": "A",
+        "expr": "sum(increase(todo_tasks_lock_conflicts_total{job=\"todo\"}[$__rate_interval])) or vector(0)",
+        "legendFormat": "conflicts"
+      }
+    ],
+    "fieldConfig": {
+      "defaults": {
+        "unit": "short",
+        "min": 0,
+        "decimals": 0,
+        "thresholds": {
+          "mode": "absolute",
+          "steps": [
+            { "color": "green", "value": null },
+            { "color": "red", "value": 1 }
+          ]
+        },
+        "color": { "mode": "thresholds" }
+      },
+      "overrides": []
+    },
+    "options": {
+      "reduceOptions": {
+        "calcs": ["lastNotNull"],
+        "fields": "",
+        "values": false
+      },
+      "orientation": "auto",
+      "textMode": "auto",
+      "colorMode": "value",
+      "graphMode": "none"
+    }
+  }
+  ]
+}
