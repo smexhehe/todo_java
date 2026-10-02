@@ -1,25 +1,59 @@
 # Todo Scheduler
 
-Планировщик задач на Java 21, Spring Boot и PostgreSQL. Существующий интерфейс из `web/` включается в JAR при сборке. Сервер сохраняет прежние адреса и JSON-формат API.
+Планировщик задач на Java 21, Spring Boot и PostgreSQL. В проект входят веб-интерфейс, мониторинг Prometheus и Grafana, а также сценарии нагрузочного тестирования.
 
-## Запуск через Docker Compose
+## Состав проекта
+
+| Компонент | Назначение |
+| --- | --- |
+| Spring Boot | HTTP API и веб-интерфейс на порту `7540` |
+| PostgreSQL 17 | хранение задач |
+| HikariCP | пул соединений приложения с PostgreSQL |
+| Prometheus | сбор метрик каждые 5 секунд |
+| Grafana | дашборд JVM, HTTP и блокировок |
+| k6 / JMeter | нагрузочные сценарии |
+
+## Быстрый запуск
+
+Из корня проекта:
 
 ```bash
 docker compose up -d --build
 ```
 
-Compose запускает приложение, PostgreSQL, Prometheus и Grafana. Данные PostgreSQL, Prometheus, Grafana и диагностические файлы JVM сохраняются в отдельных именованных томах.
+Compose сначала ждёт healthcheck PostgreSQL, затем запускает приложение. Проверить состояние:
+
+```bash
+docker compose ps
+curl.exe -s http://127.0.0.1:7540/actuator/health
+```
+
+Ожидаемый ответ healthcheck:
+
+```json
+{"groups":["liveness","readiness"],"status":"UP"}
+```
+
+Сервисы доступны только с этого компьютера:
 
 | Адрес | Сервис |
 | --- | --- |
-| <http://localhost:7540> | Планировщик задач |
-| <http://localhost:7540/actuator/prometheus> | Метрики приложения |
-| <http://localhost:9090/targets> | Состояние сбора метрик Prometheus |
-| <http://localhost:3000/d/todo-overview> | Панель Grafana |
+| <http://127.0.0.1:7540> | Todo Scheduler |
+| <http://127.0.0.1:7540/actuator/prometheus> | метрики приложения |
+| <http://127.0.0.1:9090/targets> | цели Prometheus |
+| <http://127.0.0.1:3000/d/todo-overview> | Grafana dashboard |
 
-В Grafana войдите с логином `admin` и паролем `admin`; пароль можно задать через `GRAFANA_ADMIN_PASSWORD` в `.env`. Источник Prometheus и панель `Todo Scheduler: JVM and HTTP` создаются автоматически. Порты публикуются только на `127.0.0.1`.
+Для остановки контейнеров без удаления данных:
 
-Для включения входа задайте `TODO_PASSWORD` в файле `.env` рядом с `docker-compose.yml`:
+```bash
+docker compose down
+```
+
+PostgreSQL, Prometheus, Grafana и JVM diagnostics используют именованные Docker volumes, поэтому данные сохраняются между запусками.
+
+## Настройки
+
+Можно создать файл `.env` рядом с `docker-compose.yml`:
 
 ```dotenv
 TODO_PASSWORD=change-me
@@ -27,26 +61,115 @@ POSTGRES_PASSWORD=change-db-password
 GRAFANA_ADMIN_PASSWORD=change-grafana-password
 ```
 
-После запуска откройте <http://localhost:7540/login.html>. Если `TODO_PASSWORD` пуст, проверка токена отключена. При смене пароля ранее выданные токены перестанут работать.
+Если `TODO_PASSWORD` задан, для работы с задачами нужно сначала получить cookie через `/api/signin`. Если переменная пуста, авторизация отключена.
 
-## Проверка метрик
+## API
 
-Откройте `/actuator/prometheus` и убедитесь, что там есть `jvm_memory_used_bytes`, `http_server_requests_seconds_count` и `hikaricp_connections_active`. Метрики HTTP появятся после запросов к API; для проверки можно запустить `powershell -ExecutionPolicy Bypass -File scripts\smoke.ps1`. На странице Prometheus `/targets` цель `todo` должна иметь состояние `UP`.
+| Метод | Путь | Назначение |
+| --- | --- | --- |
+| `GET` | `/api/nextdate` | вычислить следующую дату повторения |
+| `POST` | `/api/task` | создать задачу |
+| `GET` | `/api/tasks?search=текст` | получить до 50 задач или выполнить поиск |
+| `GET` | `/api/task?id=1` | получить одну задачу |
+| `PUT` | `/api/task` | изменить задачу |
+| `DELETE` | `/api/task?id=1` | удалить задачу |
+| `POST` | `/api/task/done?id=1` | завершить задачу или перенести повторяющуюся |
 
-Панель Grafana показывает частоту запросов, задержки p95/p99, ответы 5xx, память JVM, паузы GC, CPU и подключения Hikari. Данные p95/p99 появятся после нескольких минут запросов: для них используются пятиминутные окна. Prometheus опрашивает приложение каждые 5 секунд и хранит метрики 7 дней. Для остановки используйте `docker compose down`; именованные тома при этом сохранятся.
+Пример создания задачи:
 
-## JFR и heap dump во время нагрузки
+```bash
+curl.exe -i -X POST http://127.0.0.1:7540/api/task ^
+  -H "Content-Type: application/json" ^
+  -d "{\"date\":\"20261010\",\"title\":\"Подготовить отчёт\",\"comment\":\"\",\"repeat\":\"d 7\"}"
+```
 
-Команды ниже выполняются в PowerShell из папки Java-проекта после `docker compose up -d --build`. Контейнер приложения содержит JDK 21 и `jcmd`; Java-процесс в нём имеет PID `1`. Диагностические файлы сначала попадают в именованный том `/diagnostics`, затем копируются в локальную папку `diagnostics/` (она исключена из Git).
+Дата хранится в формате `yyyyMMdd`. Поддерживаются правила повторения: `d N`, `y`, `w 1,3,5` и `m 1,15,-1`.
 
-Начните запись JFR непосредственно перед нагрузочным тестом. `settings=default` подходит для записи на протяжении всего теста:
+## Мониторинг
+
+Prometheus должен показывать цель `todo` в состоянии `UP` на странице `/targets`.
+
+Дашборд **Todo Scheduler: JVM and HTTP** создаётся из файла [`monitoring/grafana/dashboards/todo-overview.json`](monitoring/grafana/dashboards/todo-overview.json). Он provisioned, поэтому изменения панели нужно сохранять в этот JSON-файл, затем перезапускать Grafana или ждать её перечитывания.
+
+На дашборде есть:
+
+- запросы API в секунду, p95/p99 и ответы 5xx;
+- heap JVM, паузы и число сборок GC, CPU и RSS процесса;
+- активные, свободные и ожидающие соединения Hikari;
+- число конфликтов блокировок задач за выбранный период.
+
+Проверить счётчик конфликтов напрямую:
+
+```bash
+curl.exe -s http://127.0.0.1:7540/actuator/metrics/todo.tasks.lock.conflicts
+```
+
+## Блокировки задач
+
+`POST /api/task/done` выполняется в транзакции. Перед изменением повторяющейся задачи приложение читает строку через `SELECT ... FOR UPDATE`.
+
+Это не даёт двум одновременным запросам вычислить одну и ту же следующую дату. Если база данных отменяет ожидание блокировки или обнаруживает deadlock, API отвечает `409 Conflict` с сообщением:
+
+```json
+{"error":"задача временно занята, повторите запрос"}
+```
+
+Каждый такой ответ увеличивает метрику `todo_tasks_lock_conflicts_total`. Рост счётчика означает, что клиенту следует повторить запрос с небольшой задержкой.
+
+## Нагрузочные тесты
+
+Перед долгим тестом проверьте короткий сценарий k6:
+
+```bash
+docker compose --profile load run --rm -e SMOKE=1 loadtest
+```
+
+Основной k6-сценарий:
+
+```bash
+docker compose --profile load run --rm loadtest
+```
+
+Он обращается из отдельного контейнера к `http://todo:7540`. В результатах смотрите `http_req_failed`, `http_reqs`, `p95` и `p99`; одновременно наблюдайте Grafana.
+
+JMeter-сценарии лежат в `loadtest/`. Например, `jmeter-tasks-crud-smoke-perf.jmx` запускает CRUD-проверку против тестового приложения на порту `7541`.
+
+## PostgreSQL: диагностика запросов
+
+В Compose включено расширение `pg_stat_statements`. Оно показывает агрегированную статистику SQL-запросов:
+
+```bash
+docker compose exec -T postgres psql -U todo -d todo -c "
+SELECT query, calls, rows,
+       round(total_exec_time::numeric, 3) AS total_ms,
+       round(mean_exec_time::numeric, 3) AS avg_ms
+FROM pg_stat_statements
+WHERE query LIKE '%scheduler%'
+ORDER BY total_exec_time DESC
+LIMIT 10;"
+```
+
+Для исследования одного запроса используйте `EXPLAIN (ANALYZE, BUFFERS)`. `Execution Time` — фактическое время выполнения, а `Buffers` показывает работу PostgreSQL с кэшем и страницами таблиц.
+
+```bash
+docker compose exec -T postgres psql -U todo -d todo -c "
+EXPLAIN (ANALYZE, BUFFERS)
+SELECT id, date, title, comment, repeat
+FROM scheduler
+ORDER BY date, id
+LIMIT 50;"
+```
+
+## JFR и heap dump
+
+В контейнере приложения доступен `jcmd`, а Java-процесс имеет PID `1`. Начать запись JFR перед нагрузкой:
 
 ```powershell
 $recording = "load-$(Get-Date -Format yyyyMMdd-HHmmss)"
-docker compose exec -T todo jcmd 1 JFR.start "name=$recording" settings=default disk=true maxsize=0
+docker compose exec -T todo jcmd 1 JFR.start "name=$recording" settings=default disk=true
 ```
 
-После окончания нагрузки остановите запись и скопируйте её на компьютер в том же PowerShell-терминале:
+После теста остановить её и скопировать на компьютер:
 
 ```powershell
 docker compose exec -T todo jcmd 1 JFR.stop "name=$recording" "filename=/diagnostics/$recording.jfr"
@@ -54,9 +177,7 @@ New-Item -ItemType Directory -Force diagnostics | Out-Null
 docker compose cp "todo:/diagnostics/$recording.jfr" "./diagnostics/$recording.jfr"
 ```
 
-`maxsize=0` отключает ограничение объёма записи: без явного параметра JVM в этом образе ограничивает запись 250 МБ. Следите за свободным местом на диске. Для более подробного профиля на коротком участке используйте `settings=profile`; такая запись сильнее влияет на результаты нагрузки.
-
-Для снимка heap в нужный момент выполните:
+Heap dump:
 
 ```powershell
 $dump = "heap-$(Get-Date -Format yyyyMMdd-HHmmss).hprof"
@@ -64,62 +185,32 @@ docker compose exec -T todo jcmd 1 GC.heap_dump "/diagnostics/$dump"
 docker compose cp "todo:/diagnostics/$dump" "./diagnostics/$dump"
 ```
 
-`GC.heap_dump` обычно запускает полный GC и может заметно приостановить приложение; отметьте этот момент при анализе задержек. При `OutOfMemoryError` JVM также попробует создать дамп в `/diagnostics` благодаря `JAVA_TOOL_OPTIONS` в Compose. Список файлов можно посмотреть командой `docker compose exec -T todo ls -lh /diagnostics`. JFR удобно открыть в JDK Mission Control, а `.hprof` — в анализаторе heap, например Eclipse MAT. Дамп может содержать данные приложения и занимать сотни мегабайт.
+JFR удобно открыть в JDK Mission Control, `.hprof` — в Eclipse MAT. Heap dump может кратко остановить приложение и содержать данные из памяти, поэтому не добавляйте его в Git.
 
-## Первый нагрузочный тест
+## Сборка и тесты
 
-Сценарий `loadtest/read-only.js` проверяет чтение задач из PostgreSQL и вычисление следующей даты. Он не изменяет данные. k6 запускается в отдельном контейнере той же сети Compose и обращается к `http://todo:7540`. Если в `.env` задан `TODO_PASSWORD`, сценарий получает токен через `/api/signin` и передаёт его в cookie.
-
-После `docker compose up -d --build` сначала выполните короткую проверку сценария:
-
-```powershell
-docker compose --profile load run --rm -e SMOKE=1 loadtest
-```
-
-Если проверка прошла, начните JFR по инструкции выше. Затем в другом PowerShell-терминале из той же папки запустите пятиминутную нагрузку:
-
-```powershell
-docker compose --profile load run --rm loadtest
-```
-
-Нагрузка плавно растёт от 5 до 20 виртуальных пользователей. После её завершения остановите JFR в первом терминале и скопируйте файл. В выводе k6 посмотрите долю ошибок, число запросов в секунду и p95/p99 времени ответа; в Grafana — HTTP, heap, GC, CPU и подключения к PostgreSQL. Если ошибок нет, результаты этого прогона можно сохранить как исходную точку для следующих тестов. Ограничения по времени ответа здесь нет: его нужно выбрать после первого измерения.
-
-## Запуск без Docker
-
-Нужны Java 21, Maven 3.6.3 или новее и работающий PostgreSQL. Создайте пользователя и базу `todo`, затем задайте параметры подключения и запустите сервер:
+Maven установлен в build stage Dockerfile, поэтому проверка выполняется без локальной установки Maven:
 
 ```bash
-export SPRING_DATASOURCE_URL=jdbc:postgresql://localhost:5432/todo
-export SPRING_DATASOURCE_USERNAME=todo
-export SPRING_DATASOURCE_PASSWORD=todo
-mvn spring-boot:run
+docker compose build todo
 ```
 
-Порт по умолчанию `7540`; его можно изменить через `TODO_PORT`. Схема создаётся скриптом `src/main/resources/schema.sql`. Проверка сборки: `mvn verify`. Для проверки запущенного сервера в PowerShell выполните `powershell -ExecutionPolicy Bypass -File scripts\smoke.ps1`.
+Команда запускает `mvn -B -q test package`: сначала JUnit-тесты, затем сборку JAR. В том числе тест проверяет, что завершение повторяющейся задачи использует блокирующее чтение `findForUpdate`.
 
-## API
+## Работа с Git
 
-| Метод | Путь | Назначение |
-| --- | --- | --- |
-| `GET` | `/api/nextdate?now=20240126&date=20240113&repeat=d%207` | Следующая дата для правила повторения |
-| `POST` | `/api/task` | Создать задачу |
-| `GET` | `/api/tasks?search=текст` | Получить до 50 задач |
-| `GET` | `/api/task?id=1` | Получить задачу |
-| `PUT` | `/api/task` | Изменить задачу |
-| `DELETE` | `/api/task?id=1` | Удалить задачу |
-| `POST` | `/api/task/done?id=1` | Завершить задачу или перенести повторяющуюся |
-| `POST` | `/api/signin` | Получить токен по паролю |
+Перед началом работы:
 
-Пример тела задачи:
-
-```json
-{"date":"20260924","title":"Сделать задачу","comment":"Описание","repeat":"d 7"}
+```bash
+git status --short
 ```
 
-`date` записывается в формате `yyyyMMdd`; пустая дата означает сегодня. Правила `repeat`: `d N` (каждые N дней, 1–400), `y` (ежегодно), `w 1,3,5` (дни недели от понедельника до воскресенья), `m 1,15,-1` (дни месяца, где `-1` означает последний день). У месячного правила можно указать месяцы: `m 10,17 1,8,12`. Поле `id` в полученной задаче является строкой, как в Go-версии.
+После готового изменения:
 
-Если включён пароль, запросы к задачам должны передавать cookie `token`, полученный через `/api/signin`. Веб-интерфейс делает это автоматически. `/api/nextdate` остаётся доступным без входа.
+```bash
+git add <файлы>
+git commit -m "Краткое описание изменения"
+git push
+```
 
-## Старые данные SQLite
-
-Файлы `scheduler.db` и `scheduler.backup.db` остались в исходной папке Go-проекта. Новая PostgreSQL-база начинается пустой. Если нужно перенести существующие задачи, это следует сделать отдельным шагом после проверки содержимого резервной копии.
+Git хранит историю исходного кода и конфигурации. В Git не должны попадать `target/`, `diagnostics/`, Docker volumes и локальная папка Eclipse `workspace/`.
