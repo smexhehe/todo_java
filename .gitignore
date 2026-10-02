@@ -4,3 +4,6 @@ target/
 .idea/
 .vscode/
 diagnostics/
+
+# Local Eclipse workspace
+/workspace/
