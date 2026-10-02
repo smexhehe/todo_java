@@ -13,8 +13,9 @@ export const options = {
   vus: __ENV.SMOKE === '1' ? 1 : undefined,
   duration: __ENV.SMOKE === '1' ? '10s' : undefined,
   thresholds: {
-    http_req_failed: ['rate<0.01'],
-    checks: ['rate>0.99'],
+    http_req_failed: ['rate==0'],
+    checks: ['rate==1'],
+    http_req_duration: ['p(95)<100'],
   },
   summaryTrendStats: ['avg', 'min', 'med', 'max', 'p(90)', 'p(95)', 'p(99)'],
 };
