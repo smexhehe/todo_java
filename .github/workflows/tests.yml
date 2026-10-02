@@ -22,6 +22,16 @@ jobs:
       - uses: actions/checkout@v4
       - name: Build and start application
         run: docker compose up -d --build --wait todo
+      - name: Wait for application readiness
+        run: |
+          for attempt in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:7540/actuator/health; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose logs todo
+          exit 1
       - name: Run k6 smoke test
         run: docker compose --profile load run --rm -e SMOKE=1 loadtest
       - name: Stop services
