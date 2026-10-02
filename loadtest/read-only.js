@@ -43,19 +43,21 @@ export default function (data) {
   }
 
   const tasks = http.get(`${baseUrl}/api/tasks`, taskParams);
-  check(tasks, {
-    'tasks: HTTP 200 and array': (response) =>
-      response.status === 200 && Array.isArray(response.json('tasks')),
-  });
+  const tasksOk = tasks.status === 200 && Array.isArray(tasks.json('tasks'));
+  if (!tasksOk) {
+    console.error(`GET /api/tasks: status=${tasks.status}, error=${tasks.error}, body=${tasks.body}`);
+  }
+  check(tasks, { 'tasks: HTTP 200 and array': () => tasksOk });
 
   const nextDate = http.get(
     `${baseUrl}/api/nextdate?now=20240126&date=20240113&repeat=d%207`,
     { tags: { name: 'GET /api/nextdate' } },
   );
-  check(nextDate, {
-    'nextdate: expected response': (response) =>
-      response.status === 200 && response.body === '20240127',
-  });
+  const nextDateOk = nextDate.status === 200 && nextDate.body === '20240127';
+  if (!nextDateOk) {
+    console.error(`GET /api/nextdate: status=${nextDate.status}, error=${nextDate.error}, body=${nextDate.body}`);
+  }
+  check(nextDate, { 'nextdate: expected response': () => nextDateOk });
 
   sleep(1);
 }
