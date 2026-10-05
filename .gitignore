@@ -7,3 +7,4 @@ diagnostics/
 
 # Local Eclipse workspace
 /workspace/
+.env.production

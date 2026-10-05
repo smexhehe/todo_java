@@ -1,0 +1,12 @@
+services:
+  todo:
+    # Immutable image tag, for example ghcr.io/smexhehe/todo_java:v1.1.0.
+    image: ${TODO_IMAGE:?Set TODO_IMAGE in .env.production}
+    pull_policy: always
+    build: !reset null
+    # The local JMX port from docker-compose.yml is deliberately absent here.
+    ports: !override
+      - "127.0.0.1:${TODO_HOST_PORT:-7540}:7540"
+    environment:
+      JAVA_TOOL_OPTIONS: >-
+        -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/diagnostics

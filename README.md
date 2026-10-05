@@ -254,3 +254,29 @@ Git хранит историю исходного кода и конфигур�
 ## CI gate
 
 Изменения в `main` объединяются через Pull Request только после успешных `test` и `load-smoke`.
+
+## Production-развёртывание
+
+Для production используется готовый release-образ, поэтому сервер не собирает приложение из исходников. `docker-compose.prod.yml` дополняет основной Compose: удаляет `build`, использует `TODO_IMAGE` и публикует только HTTP-порт. Порт JMX `9011`, нужный для локальной диагностики, в production-конфигурацию не входит.
+
+Создайте файл с настройками из шаблона и замените примерные пароли:
+
+```powershell
+Copy-Item .env.production.example .env.production
+```
+
+`.env.production` игнорируется Git, так как содержит секреты.
+
+Перед развёртыванием проверьте итоговую Compose-конфигурацию:
+
+```powershell
+docker compose --env-file .env.production -f docker-compose.yml -f docker-compose.prod.yml config
+```
+
+Разверните образ с release-тегом и дождитесь health-check Spring Boot:
+
+```powershell
+.\scripts\deploy.ps1 -EnvFile .env.production
+```
+
+Скрипт скачивает `TODO_IMAGE`, запускает `todo` вместе с PostgreSQL и ждёт, пока `GET /actuator/health` вернёт HTTP 200. Для отката укажите в `.env.production` предыдущий release-тег в `TODO_IMAGE` и повторите ту же команду.
