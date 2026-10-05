@@ -295,3 +295,33 @@ git push origin v1.1.0
 ```
 
 Статус сборки будет виден во вкладке **Actions**. Если Container Registry package остаётся приватным, сервер перед `docker compose pull` должен один раз выполнить `docker login ghcr.io`; для публичного package вход не требуется.
+## Резервное копирование PostgreSQL
+
+`pg_dump` создаёт архив базы, а не копирует файлы Docker volume. Такой архив можно перенести на другой сервер и восстановить совместимой версией PostgreSQL.
+
+Создать backup текущей базы:
+
+```powershell
+.\scripts\backup-postgres.ps1
+```
+
+Архив формата `custom` появится в `diagnostics/backups/`. Каталог игнорируется Git.
+
+Если PowerShell сообщает, что выполнение сценариев отключено, запускайте без изменения системной политики:
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\backup-postgres.ps1
+```
+
+Проверить, что backup действительно восстанавливается:
+
+```powershell
+$backup = Get-ChildItem diagnostics/backups/*.dump |
+  Sort-Object LastWriteTime -Descending |
+  Select-Object -First 1
+.\scripts\verify-postgres-backup.ps1 -BackupFile $backup.FullName
+```
+
+Скрипт создаёт отдельную БД `todo_restore_check`, восстанавливает в неё архив, выводит число задач и затем удаляет только эту тестовую БД. Если `todo_restore_check` уже существует, он остановится и ничего не перезапишет.
+
+Для планового backup запускайте `backup-postgres.ps1` по расписанию и храните архивы вне сервера, где работает PostgreSQL. Проверку восстановления выполняйте регулярно: сам факт создания файла ещё не доказывает, что восстановление сработает.
