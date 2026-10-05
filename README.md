@@ -280,3 +280,18 @@ docker compose --env-file .env.production -f docker-compose.yml -f docker-compos
 ```
 
 Скрипт скачивает `TODO_IMAGE`, запускает `todo` вместе с PostgreSQL и ждёт, пока `GET /actuator/health` вернёт HTTP 200. Для отката укажите в `.env.production` предыдущий release-тег в `TODO_IMAGE` и повторите ту же команду.
+
+### Release-образ в GHCR
+
+Workflow `Publish release image` запускается только при отправке Git-тега, который начинается с `v`. Он собирает Docker-образ из `Dockerfile` и публикует его в GitHub Container Registry. Например, для версии `v1.1.0` итоговый адрес образа будет `ghcr.io/smexhehe/todo_java:v1.1.0`.
+
+После merge workflow в `main` создайте и отправьте тег:
+
+```bash
+git switch main
+git pull --ff-only
+git tag -a v1.1.0 -m "Release v1.1.0"
+git push origin v1.1.0
+```
+
+Статус сборки будет виден во вкладке **Actions**. Если Container Registry package остаётся приватным, сервер перед `docker compose pull` должен один раз выполнить `docker login ghcr.io`; для публичного package вход не требуется.
