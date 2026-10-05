@@ -104,6 +104,43 @@ Prometheus должен показывать цель `todo` в состояни
 curl.exe -s http://127.0.0.1:7540/actuator/metrics/todo.tasks.lock.conflicts
 ```
 
+## Алерты
+
+Prometheus вычисляет правила каждые 5 секунд и передаёт firing alerts в Alertmanager. Локальный Alertmanager доступен на <http://127.0.0.1:9093>; на первом этапе он показывает активные alerts в интерфейсе, но не отправляет сообщения во внешние сервисы.
+
+Правила лежат в `monitoring/alerts/todo.yml`:
+
+| Alert | Условие | Зачем нужен |
+| --- | --- | --- |
+| `TodoTargetDown` | приложение не scrape-ится 30 секунд | приложение недоступно |
+| `TodoApi5xxErrors` | API возвращает 5xx не менее минуты | серверная ошибка API |
+| `TodoTaskLockConflict` | был конфликт блокировки за последние 5 минут | запрос `done` требуется повторить |
+| `TodoHeapUsageHigh` | heap больше 85% пять минут | риск `OutOfMemoryError` |
+| `TodoHikariConnectionsPending` | есть ожидающие соединения минуту | пул или PostgreSQL перегружены |
+
+После изменения правил перезапустите Prometheus и Alertmanager:
+
+```bash
+docker compose up -d alertmanager prometheus
+```
+
+Проверить правила и их текущее состояние:
+
+- <http://127.0.0.1:9090/rules> — загруженные правила;
+- <http://127.0.0.1:9090/alerts> — состояния `pending` и `firing`;
+- <http://127.0.0.1:9093> — alerts, сгруппированные Alertmanager.
+
+Для безопасной проверки `TodoTargetDown` временно остановите только приложение:
+
+```bash
+docker compose stop todo
+```
+
+Через 30 секунд alert перейдёт в `firing`. После проверки верните приложение:
+
+```bash
+docker compose start todo
+```
 ## Блокировки задач
 
 `POST /api/task/done` выполняется в транзакции. Перед изменением повторяющейся задачи приложение читает строку через `SELECT ... FOR UPDATE`.

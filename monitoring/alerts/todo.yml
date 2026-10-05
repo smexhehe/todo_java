@@ -1,0 +1,50 @@
+groups:
+  - name: todo-availability
+    rules:
+      - alert: TodoTargetDown
+        expr: up{job="todo"} == 0
+        for: 30s
+        labels:
+          severity: critical
+        annotations:
+          summary: "Todo application is down"
+          description: "Prometheus cannot scrape {{ $labels.instance }} for 30 seconds."
+
+  - name: todo-api
+    rules:
+      - alert: TodoApi5xxErrors
+        expr: sum(rate(http_server_requests_seconds_count{job="todo",uri=~"/api/.*",status=~"5.."}[1m])) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Todo API returns 5xx responses"
+          description: "The API has returned server errors for at least one minute."
+
+      - alert: TodoTaskLockConflict
+        expr: increase(todo_tasks_lock_conflicts_total{job="todo"}[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "Task lock conflict detected"
+          description: "At least one task completion request encountered a database lock conflict in the last five minutes."
+
+  - name: todo-jvm
+    rules:
+      - alert: TodoHeapUsageHigh
+        expr: sum(jvm_memory_used_bytes{job="todo",area="heap"}) / sum(jvm_memory_max_bytes{job="todo",area="heap"}) > 0.85
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Todo JVM heap usage is high"
+          description: "Heap usage has exceeded 85% of the configured maximum for five minutes."
+
+      - alert: TodoHikariConnectionsPending
+        expr: max_over_time(hikaricp_connections_pending{job="todo"}[1m]) > 0
+        for: 1m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Hikari has pending database connections"
+          description: "Requests have been waiting for a PostgreSQL connection for at least one minute."
